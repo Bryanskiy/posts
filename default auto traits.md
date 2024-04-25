@@ -4,13 +4,13 @@ This text is a description of [#120706](https://github.com/rust-lang/rust/pull/1
 
 ## Intro
 
-Sometimes in Rust, we want to use the type system to express specific behavior and provide safety guarantees. This behavior is specified by certain "marker" traits. For example, we use `Send` and `Sync` to keep track of which types are thread safe. As the language develops, there are more and more problems that could be solved by adding new marker traits:
+Sometimes in Rust, we want to use the type system to express specific behavior and provide safety guarantees. This behavior can be specified by certain "marker" traits. For example, we use `Send` and `Sync` to keep track of which types are thread safe. As the language develops, there are more and more problems that could be solved by adding new marker traits:
 
 - to forbid types with an async destructor to be dropped in a synchronous context a certain trait `SyncDrop` could be used [Async destructors, async genericity and completion futures](https://sabrinajewson.org/blog/async-drop).
 -  to support [scoped tasks](https://without.boats/blog/the-scoped-task-trilemma/) or in a more general sense to provide a [destruction guarantee](https://zetanumbers.github.io/book/myosotis.html)  there is a desire among some users to see a `Leak` trait.
 - Withoutboats in his [post](https://without.boats/blog/changing-the-rules-of-rust/)  reflected on the use of `Move` trait instead of a `Pin`.
 
-Proposed traits semantically are close to auto traits with default bounds.  However, adding new default bounds paired with lots of difficulties: many standard library interfaces may need to be infected with confusing `?Trait` syntax, migration to a new edition may contain backward compatibility holes, supporting new traits in the compiler can be quite difficult and so forth. Anyway, it's difficult to evaluate the complexity until we try the system on a practice.
+Proposed traits semantically are close to auto traits with default bounds.  However, adding new default bounds paired with lots of difficulties: many standard library interfaces may need to be infected with confusing `?Trait` syntax, migration to a new edition may contain backward compatibility holes, supporting new traits in the compiler can be quite difficult and so forth. Anyway, it's hard to evaluate the complexity until we try the system on a practice.
 
  In this PR we introduce new lang item traits that are added to all bounds by default, similarly to existing `Sized`. The examples of such traits could be `Leak`, `Move`, `SyncDrop` or something else, it doesn't matter much right now(further i will call them `DefaultAutoTrait`'s).  We want to land the change into rustc under an option, so it becomes available in bootstrap compiler. Then we'll be able to do standard library experiments with the aforementioned traits without adding hundreds of `#[cfg(not(bootstrap))]`s. Based on the experiments, we can come up with some scheme for the next edition, in which such bounds are added with the minimum troubles.
 ## Default bounds for old editions
@@ -35,7 +35,7 @@ enum Option<T: DefaultAutoTrait + Sized> {
 
 However, default supertraits can significantly affect compiler performance. For example, if we know that `T: Trait`, the compiler would deduce that `T: DefaultAutoTrait`. It also implies proving `F: DefaultAutoTrait` for each field `F`  of type `T` until an explicit impl will be provided.
 
-In this PR for optimization purposes instead of adding the default supertraits, bounds are added to the associative items:
+In this PR for optimization purposes instead of adding default supertraits, bounds are added to the associative items:
 
 ```rust
 // Default bounds are generated in the following way:
