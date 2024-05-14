@@ -1,34 +1,5 @@
-This text aims to provide information on design alternatives and implementation details for functions delegation in generic contexts. Part of [Tracking Issue for function delegation](https://github.com/rust-lang/rust/issues/118212).
-## High-level overview
-
-The delegation proposal aims to provide a syntactic sugar for the efficient reuse of already implemented functions. From the compiler's perspective, this means we must infer caller signature, header(any qualifiers like async, or const), generics and any other type of information from a limited syntax budget.
-
-Ideally we would expand delegation items into regular functions before AST lowering, but analysis possibilities on AST level are limited: type information is not available, type-relative paths(`Type::name`) are not resolved. That's why we first generate a simplified function body:
-
-```rust
-fn foo<Arg0, ..., ArgN>(arg0: Arg0, ... argN: ArgN)
-where
-    Arg0: ...,
-    ...,
-{ ... }
-
-reuse foo as bar;
-
-// Generated hir:
-fn bar(
-  arg0: InferDelegation(DefId(foo), Input(0)),
-  ...,
-  argN: InferDelegation(DefId(foo), Input(N)),
-) -> InferDelegation(DefId(foo), Output) {
-  foo(arg0, arg1, ..., argN)
-}
-
-```
-
-In simplified body there is no generics and predicates, parameter types are replaced with `InferDelegation` placeholder. This information is inherited from callee during HIR ty lowering.
-
-In this PR, we consider only the delegation from free functions as this is the simplest case. However, even in this case, some alternatives arise.
-
+This text aims to provide information on design and implementation details for functions delegation in generic contexts. Part of [Tracking Issue for function delegation](https://github.com/rust-lang/rust/issues/118212). For now
+we consider only the delegation from free functions as this is the simplest case. However, even in this case, some alternatives arise.
 ## "fn to others" delegation
 
 Let's consider cases where a delegation item is expanded into free function. If the callee is not a trait method, then generics and predicates should simply be copied:
@@ -163,3 +134,36 @@ reuse to_reuse::<HashMap<_, _>> as bar; // ERROR: not allowed
 But, again, we would not like to ban anything at this stage.
 
 Secondly, delegating from free functions to something is an exotic case for which it is difficult to find a use.
+
+## Implementation details
+
+The delegation proposal aims to provide a syntactic sugar for the efficient reuse of already implemented functions. From the compiler's perspective, this means we must infer caller signature, header(any qualifiers like async, or const), generics and any other type of information from a limited syntax budget.
+
+Ideally we would expand delegation items into regular functions before AST lowering, but analysis possibilities on AST level are limited: type information is not available, type-relative paths(`Type::name`) are not resolved. That's why we first generate a simplified function body:
+
+```rust
+fn foo<Arg0, ..., ArgN>(arg0: Arg0, ... argN: ArgN)
+where
+    Arg0: ...,
+    ...,
+{ ... }
+
+reuse foo as bar;
+
+// Generated hir:
+fn bar(
+  arg0: InferDelegation(DefId(foo), Input(0)),
+  ...,
+  argN: InferDelegation(DefId(foo), Input(N)),
+) -> InferDelegation(DefId(foo), Output) {
+  foo(arg0, arg1, ..., argN)
+}
+
+```
+
+In simplified body there is no generics and predicates, parameter types are replaced with `InferDelegation` placeholder. This information is inherited from callee during HIR ty lowering:
+
+1. Callee type is extracted with `FnCtxt` from the call path.
+2. Callee type is traversed, corresponding parameters and predicates are collected from type definitions.
+3. Inference variables are replaced with generated parameters according to collected type definitions.
+4. Caller signature and predicates are instantiated with new type parameters.
