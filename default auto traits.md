@@ -71,7 +71,7 @@ or
 trait Trait {
    type Type where Self: Sized;
 }
-trait Trait2<T> : Trait<Type = T> {} // ERROR: `???` requires `DefaultAutoTrait`, but `Self` is not `DefaultAutoTrait`
+trait Trait2<T> : Trait<Type = T> {} // ERROR: `DefaultAutoTrait` required for `Trait2`, by implicit  `Self: DefaultAutoTrait` in `Trait::Type`
 ```
 
 Therefore, `DefaultAutoTrait`'s are still being added to supertraits if the `Self` params or type bindings were found in the trait header.
