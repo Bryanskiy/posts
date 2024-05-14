@@ -45,13 +45,13 @@ or
 
 ```rust
 impl SomeType {
-    fn to_reuse<T: Clone>(&self, x: T) {}
+  fn to_reuse<T: Clone>(&self, x: T) {}
 }
 
 reuse SomeType::to_reuse as baz;
 // desugaring with inherited type info:
 fn baz<T: Clone>(fst: &SomeType, scd: T) {
-    SomeType::to_reuse::<_>(fst, scd)
+  SomeType::to_reuse::<_>(fst, scd)
 }
 ```
 
@@ -71,7 +71,7 @@ However, here we face a problem: what if method container also have generic para
 
 ```rust
 trait Trait<T> {
-	fn foo<U>(&self, x: U, y: T);
+  fn foo<U>(&self, x: U, y: T);
 }
 
 // what should be written here??
@@ -80,7 +80,7 @@ reuse Trait<???>::foo;
 
 There are three options:
 
-- Ban delegation from free functions to a methods with generics in a parent container, or even ban delegation from free functions to a methods. 
+- Ban delegation from free functions to a methods with generics in a parent container, or even ban delegation from free functions to a methods.
 - Introduce new generic parameters in delegation item like for impls.
 - Allow inference variables in delegation items.
 
@@ -90,29 +90,29 @@ An example of the second option looks like this:
 
 ```rust
 trait Trait<T> {
-	fn foo<U>(&self, x: U, y: T);
+  fn foo<U>(&self, x: U, y: T);
 }
 
 reuse<T, U> Trait<T>::foo<U>;
 ```
 
-This approach was rejected because it doesn't fit into syntax budget: additional parameters, bounds and where clauses could be very annoying. 
+This approach was rejected because it doesn't fit into syntax budget: additional parameters, bounds and where clauses could be very annoying.
 
 That's why we chose the last option.
 
 ## Explicit inference variables
 
-It can be noted that when delegating to a generic function,  compiler generate an implicit inference variables in caller's body(look at `<_> or <_ as ...>` in above examples). We could allowed explicit inference variables in the delegation item and generate generic parameters according to these inference variables. For the above example we get:
+It can be noted that when delegating to a generic function,  compiler generate an implicit inference variables in caller's body(look at `<_> or <_ as ...>` in above examples). We could allow explicit inference variables in the delegation item and generate generic parameters according to these inference variables. For the above example we get:
 
 ```rust
 trait Trait<T> {
-    fn foo<U>(&self, x: U, y: T);
+  fn foo<U>(&self, x: U, y: T);
 }
 
 reuse Trait<_>::foo;
 // desugaring with inherited type info:
 fn foo<S: Trait<T>, T, U>(s: &S, x: U, y: T) {
-    <_ as Trait<_>>::foo::<_>(s, x, y)
+  <_ as Trait<_>>::foo::<_>(s, x, y)
 }
 
 ```
@@ -151,7 +151,7 @@ fn bar<T, U>(x: HashMap<T, U>) { to_reuse::<HashMap<_, _>>(x) }
 
 ### disadvantages
 
-Approach with inference variables has some disadvantages. 
+Approach with inference variables has some disadvantages.
 
 Firstly, the order of the parameters is determined by depth-first type traversal, which may not be obvious to users. Technically, this problem can be solved by banning instantiation of types with generic parameters, i.e., banning nested inference variables:
 
@@ -163,4 +163,3 @@ reuse to_reuse::<HashMap<_, _>> as bar; // ERROR: not allowed
 But, again, we would not like to ban anything at this stage.
 
 Secondly, delegating from free functions to something is an exotic case for which it is difficult to find a use.
-
