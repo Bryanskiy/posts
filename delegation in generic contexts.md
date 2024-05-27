@@ -45,7 +45,7 @@ trait Trait<T> {
   fn foo<U>(&self, x: U, y: T);
 }
 
-// what should be written here??
+// what should be written here and how should it be desugared??
 reuse Trait<???>::foo;
 ```
 
@@ -53,7 +53,7 @@ There are three options:
 
 - Ban delegation from free functions to a methods with generics in a parent container, or even ban delegation from free functions to a methods.
 - Introduce new generic parameters in delegation item like for impls.
-- Allow inference variables in delegation items.
+- Map inference variables to generic params.
 
 We would not like to follow the first option, because any subset can always be banned as long as the feature is unstable. On the contrary, we would like to accommodate as many cases as possible within a limited syntactic budget and gather the most comprehensive user experience.
 
@@ -73,14 +73,14 @@ That's why we chose the last option.
 
 ## Explicit inference variables
 
-It can be noted that when delegating to a generic function,  compiler generate an implicit inference variables in caller's body(look at `<_> or <_ as ...>` in above examples). We could allow explicit inference variables in the delegation item and generate generic parameters according to these inference variables. For the above example we get:
+It can be noted that when delegating to a generic function,  compiler generate an implicit inference variables in caller's body(look at `<_> or <_ as ...>` in above examples). We could generate generic parameters according to these inference variables. For the above example we get:
 
 ```rust
 trait Trait<T> {
   fn foo<U>(&self, x: U, y: T);
 }
 
-reuse Trait<_>::foo;
+reuse Trait::foo;
 // desugaring with inherited type info:
 fn foo<S: Trait<T>, T, U>(s: &S, x: U, y: T) {
   <_ as Trait<_>>::foo::<_>(s, x, y)
@@ -88,7 +88,7 @@ fn foo<S: Trait<T>, T, U>(s: &S, x: U, y: T) {
 
 ```
 
-Next, we could also allow "instantiation" of inference variables:
+Next, we could also allow explicit inference variables and their "instantiation":
 
 ```rust
 fn to_reuse<T: Clone>(_: T) {}
