@@ -1,18 +1,50 @@
+
 This text aims to provide information on design and implementation details for functions delegation in generic contexts. Part of [Tracking Issue for function delegation](https://github.com/rust-lang/rust/issues/118212). For now
 we consider only the delegation from free functions as this is the simplest case. However, even in this case, some alternatives arise.
+
+## Intro
+
+The delegation proposal aims to provide a syntactic sugar for the efficient reuse of already implemented functions. From the compiler's perspective, this means we must infer caller signature, header(any qualifiers like async, or const), generics and any other type of information from a limited syntax budget.
+
+Ideally we would expand delegation items into regular functions before AST lowering, but analysis possibilities on AST level are limited: type information is not available, type-relative paths(`Type::name`) are not resolved. That's why we first generate a simplified function body:
+
+```rust
+fn foo<Arg0, ..., ArgN>(arg0: Arg0, ... argN: ArgN)
+where
+    Arg0: ...,
+    ...,
+{ ... }
+
+reuse foo as bar;
+
+// Generated hir:
+fn bar(
+  arg0: InferDelegation(DefId(foo), Input(0)),
+  ...,
+  argN: InferDelegation(DefId(foo), Input(N)),
+) -> InferDelegation(DefId(foo), Output) {
+  foo(arg0, arg1, ..., argN)
+}
+
+```
+
+In simplified body there is no generics and predicates, parameter types are replaced with `InferDelegation` placeholder. This information is inherited from callee during HIR ty lowering. Let's consider cases where a delegation item is expanded into free function.
+
 ## "fn to others" delegation
 
-Let's consider cases where a delegation item is expanded into free function. If the callee is not a trait method, then generics and predicates should simply be copied:
+If the callee is not a trait method, then generics and predicates should simply be copied:
 
 ```rust
 fn to_reuse<T: Clone>(_: T) {}
 
 reuse to_reuse as bar;
 // desugaring with inherited type info:
-fn bar<T: Clone>(x: T) { to_reuse::<_>(x) }
+fn bar<T: Clone>(x: T) {
+  to_reuse::<_>(x)
+}
 ```
 
-or
+or for an inherent impl:
 
 ```rust
 impl SomeType {
@@ -35,7 +67,9 @@ trait Trait {
 
 reuse Trait::foo;
 // desugaring with inherited type info:
-fn foo<T: Trait>(x: &T) { <_ as Trait>::foo(x) }
+fn foo<T: Trait>(x: &T) {
+  <_ as Trait>::foo(x)
+}
 ```
 
 However, here we face a problem: what if method container also have generic parameters?
@@ -71,9 +105,9 @@ This approach was rejected because it doesn't fit into syntax budget: additional
 
 That's why we chose the last option.
 
-## Explicit inference variables
+## Inference variables
 
-It can be noted that when delegating to a generic function,  compiler generate an implicit inference variables in caller's body(look at `<_> or <_ as ...>` in above examples). We could generate generic parameters according to these inference variables. For the above example we get:
+It can be noted that when delegating to a generic function,  compiler generate an implicit inference variables in caller's body(look at `<_> or <_ as ...>` in above examples). We could generate generic parameter for each encountered inference variable. For the above example we get:
 
 ```rust
 trait Trait<T> {
@@ -88,17 +122,21 @@ fn foo<S: Trait<T>, T, U>(s: &S, x: U, y: T) {
 
 ```
 
-Next, we could also allow explicit inference variables and their "instantiation":
+Next, we could also allow explicit inference variables in callee paths:
 
 ```rust
-fn to_reuse<T: Clone>(_: T) {}
+trait Trait {
+  fn foo(&self) {}
+}
 
-reuse to_reuse::<u8> as bar;
+reuse <_ as Trait>::foo;
 // desugaring with inherited type info:
-fn bar<u8: Clone>(x: u8) { to_reuse::<u8>(x) }
+fn foo<T: Trait>(x: &T) {
+  <_ as Trait>::foo(x)
+}
 ```
 
-or for a trait method:
+and their "instantiation" by generic arguments:
 
 ```rust
 trait Trait {
@@ -107,7 +145,9 @@ trait Trait {
 
 reuse <u8 as Trait>::foo;
 // desugaring with inherited type info:
-fn foo<u8: Trait>(x: &u8) { <u8 as Trait>::foo(x) }
+fn foo<u8: Trait>(x: &u8) {
+  <u8 as Trait>::foo(x)
+}
 ```
 
 The substituted types can also contain inference variables:
@@ -117,7 +157,82 @@ fn to_reuse<T>(_: T) {}
 
 reuse to_reuse::<HashMap<_, _>> as bar;
 // desugaring with inherited type info:
-fn bar<T, U>(x: HashMap<T, U>) { to_reuse::<HashMap<_, _>>(x) }
+fn bar<T, U>(x: HashMap<T, U>) {
+  to_reuse::<HashMap<_, _>>(x)
+}
+```
+
+### Const paramenters
+
+Type parameters may not be specified in callee path because they are inferred by compiler. In contrast, constants must always be specified explicitly if the parameter is not defined by default:
+
+```rust
+fn foo<const N: i32>() {}
+
+reuse foo as bar;
+// desugaring with inherited type info:
+fn bar() {
+  foo() // ERROR: cannot infer the value of the const parameter `N`
+}
+```
+
+ For this reason, we do not inherit const parameters. However, we could support const arguments in callee path:
+
+```rust
+fn foo<const N: i32>() {}
+
+reuse foo::<1> as bar;
+// desugaring with inherited type info:
+fn bar() {
+  foo::<1>()
+}
+```
+
+
+### Default parameters
+
+Default parameters are also not inherited, because they are not permitted in functions. Therefore, there are 2 options here. Firstly, we can create non-default generic parameters according to inference variables:
+
+
+```rust
+trait Trait<T = i32> {
+  fn foo(&self) {...}
+}
+
+reuse Trait::foo;
+// desugaring with inherited type info:
+fn foo<This: Trait<T>, T>(x: &This) {
+  <_ as Trait<_>>::foo(x)
+}
+```
+
+Secondly, we can substitute default parameters into the signature:
+
+```rust
+trait Trait<T = i32> {
+  fn foo(&self) {...}
+}
+
+reuse Trait::foo;
+// desugaring with inherited type info:
+fn foo<This: Trait<i32>>(x: &This) {
+  <_ as Trait<_>>::foo(x)
+}
+```
+
+We chose the first one as it is more general.
+
+Note: for type-relative paths type hint could be used to force default parameters:
+
+```rust
+struct S<T=i32>(T);
+
+impl<T> S<T> {
+    fn foo() {}
+}
+
+reuse S::foo; // ERROR: cannot infer type of the type parameter
+reuse <S>::foo; // OK, default parameter will be used.
 ```
 
 ### disadvantages
@@ -134,36 +249,3 @@ reuse to_reuse::<HashMap<_, _>> as bar; // ERROR: not allowed
 But, again, we would not like to ban anything at this stage.
 
 Secondly, delegating from free functions to something is an exotic case for which it is difficult to find a use.
-
-## Implementation details
-
-The delegation proposal aims to provide a syntactic sugar for the efficient reuse of already implemented functions. From the compiler's perspective, this means we must infer caller signature, header(any qualifiers like async, or const), generics and any other type of information from a limited syntax budget.
-
-Ideally we would expand delegation items into regular functions before AST lowering, but analysis possibilities on AST level are limited: type information is not available, type-relative paths(`Type::name`) are not resolved. That's why we first generate a simplified function body:
-
-```rust
-fn foo<Arg0, ..., ArgN>(arg0: Arg0, ... argN: ArgN)
-where
-    Arg0: ...,
-    ...,
-{ ... }
-
-reuse foo as bar;
-
-// Generated hir:
-fn bar(
-  arg0: InferDelegation(DefId(foo), Input(0)),
-  ...,
-  argN: InferDelegation(DefId(foo), Input(N)),
-) -> InferDelegation(DefId(foo), Output) {
-  foo(arg0, arg1, ..., argN)
-}
-
-```
-
-In simplified body there is no generics and predicates, parameter types are replaced with `InferDelegation` placeholder. This information is inherited from callee during HIR ty lowering:
-
-1. Callee type is extracted with `FnCtxt` from the call path.
-2. Callee type is traversed, corresponding parameters and predicates are collected from type definitions.
-3. Inference variables are replaced with generated parameters according to collected type definitions.
-4. Caller signature and predicates are instantiated with new type parameters.
