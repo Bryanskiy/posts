@@ -162,7 +162,7 @@ fn bar<T, U>(x: HashMap<T, U>) {
 }
 ```
 
-### Const paramenters
+### Const parameters
 
 Type parameters may not be specified in callee path because they are inferred by compiler. In contrast, constants must always be specified explicitly if the parameter is not defined by default:
 
