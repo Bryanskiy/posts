@@ -23,7 +23,7 @@ fn bar(
   ...,
   argN: InferDelegation(DefId(foo), Input(N)),
 ) -> InferDelegation(DefId(foo), Output) {
-  foo(arg0, arg1, ..., argN)
+  foo<_, ..., _>(arg0, arg1, ..., argN)
 }
 
 ```
@@ -85,7 +85,7 @@ reuse Trait<???>::foo;
 
 There are three options:
 
-- Ban delegation from free functions to a methods with generics in a parent container, or even ban delegation from free functions to a methods.
+- Ban delegation from free functions to methods with generics in a parent container, or even ban delegation from free functions to methods.
 - Introduce new generic parameters in delegation item like for impls.
 - Map inference variables to generic params.
 
