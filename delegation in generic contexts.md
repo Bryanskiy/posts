@@ -176,8 +176,7 @@ fn bar() {
 }
 ```
 
- For this reason, we do not inherit const parameters. However, we could support const arguments in callee path:
-
+Due to implementation limitations, the callee path is lowered without modifications. As a result, we get a compilation error. Therefore, we do not inherit const parameters, but they can be specified as generic arguments:
 ```rust
 fn foo<const N: i32>() {}
 
