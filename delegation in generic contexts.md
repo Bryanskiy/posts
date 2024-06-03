@@ -28,7 +28,9 @@ fn bar(
 
 ```
 
-In simplified body there is no generics and predicates, parameter types are replaced with `InferDelegation` placeholder. This information is inherited from callee during HIR ty lowering. Let's consider cases where a delegation item is expanded into free function.
+In simplified body there is no generics and predicates, parameter types are replaced with `InferDelegation` placeholder. This information is inherited from callee during HIR ty lowering.
+
+Let's consider cases where a delegation item is expanded into free function.
 
 ## "fn to others" delegation
 
@@ -107,7 +109,7 @@ That's why we chose the last option.
 
 ## Inference variables
 
-It can be noted that when delegating to a generic function,  compiler generate an implicit inference variables in caller's body(look at `<_> or <_ as ...>` in above examples). We could generate generic parameter for each encountered inference variable. For the above example we get:
+It can be noted that when delegating to a generic function,  compiler generate an implicit inference variables in caller's body(look at `<_> or <_ as ...>` in above examples). We could avoid introducing explicit generic parameters and generate them based on encountered inference variables. For the above example we get:
 
 ```rust
 trait Trait<T> {
@@ -159,6 +161,24 @@ reuse to_reuse::<HashMap<_, _>> as bar;
 // desugaring with inherited type info:
 fn bar<T, U>(x: HashMap<T, U>) {
   to_reuse::<HashMap<_, _>>(x)
+}
+```
+
+### Lifetimes
+
+Lifetime parameters must be declared before type and const parameters.
+Therefore, When delegating from a free function to a associated function,
+generic parameters need to be reordered:
+
+```rust
+trait Trait<'a, A> {
+    fn foo<'b, B>(&self, x: A, y: B) {...}
+}
+
+reuse Trait::foo;
+// desugaring with inherited type info:
+fn foo<'a, 'b, This: Trait<'a, A>, A, B>(this: &This, x: A, y: B) {
+  <_ as Trait<'_, _>>::foo::<_>(this, x, y)
 }
 ```
 
